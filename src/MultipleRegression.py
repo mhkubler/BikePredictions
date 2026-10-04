@@ -2,14 +2,18 @@ import pandas as pd
 
 days = pd.read_csv("./daily.csv", header=None)
 days.drop(labels=[0, 1], axis=1, inplace=True)
-print(days)
 
-x1 = days.iloc[:, 10].to_list()
-x2 = days.iloc[:, 12].to_list()
+x1 = days.iloc[:, 8].to_list()
+x2 = days.iloc[:, 10].to_list()
 
 y = days.iloc[:, -1].to_list()
 
 points = [(x1[i], x2[i], y[i]) for i in range(len(x1))]
+train_end = int(len(points) * 0.7)
+validation_end = int(len(points) * 0.85)
+training_points = points[:train_end]
+validation_points = points[train_end:validation_end]
+test_points = points[validation_end:]
 
 def matrix_multiply(A, B):
     result = []
@@ -61,6 +65,8 @@ def gaussian_elimination(A, b):
         matrix.append(A[i] + [b[i][0]])
 
     n = len(matrix)
+    # Scale the pivot tolerance to the original coefficient matrix.
+    tolerance = 1e-12 * max(abs(value) for row in A for value in row)
 
     for i in range(n):
 
@@ -72,6 +78,8 @@ def gaussian_elimination(A, b):
         matrix[i], matrix[pivot_row] = matrix[pivot_row], matrix[i]
 
         pivot = matrix[i][i]
+        if abs(pivot) <= tolerance:
+            raise ValueError("Singular or numerically unstable system: zero or near-zero pivot.")
 
         for j in range(i, n + 1):
             matrix[i][j] /= pivot
@@ -94,7 +102,7 @@ def gaussian_elimination(A, b):
 
     return x
 
-X, y = construct_matrices(points)
+X, y = construct_matrices(training_points)
 
 def multiple_regression(X, y):
     XT = transpose(X)
@@ -108,11 +116,6 @@ def multiple_regression(X, y):
 beta = multiple_regression(X, y)
 
 print("Betas:", beta)
-
-predictions = matrix_multiply(
-    X,
-    [[b] for b in beta]
-)
 
 def r_squared(y, predictions):
 
@@ -130,14 +133,28 @@ def r_squared(y, predictions):
 
     return 1 - (ss_res / ss_tot)
 
-print("R^2:", r_squared(y, predictions))
+def evaluate(y, predictions):
+    errors = [y[i][0] - predictions[i][0] for i in range(len(y))]
+    mae = sum(abs(error) for error in errors) / len(errors)
+    rmse = (sum(error**2 for error in errors) / len(errors)) ** 0.5
+    print(f"MAE: {mae:.2f}, RMSE: {rmse:.2f}, R^2: {r_squared(y, predictions):.4f}")
 
 def predict(beta, temperature, humidity):
 
     return (
         beta[0]
-        + beta[1] * (temperature / 41)
-        + beta[2] * (humidity / 100)
+        + beta[1] * temperature
+        + beta[2] * humidity
     )
 
-print("Prediction:", predict(beta, 20, 27))
+training_mean = sum(point[-1] for point in training_points) / len(training_points)
+print("Training/validation/test observations:", len(training_points), len(validation_points), len(test_points))
+print("Training-set mean:", training_mean)
+
+for name, evaluation_points in [("Validation", validation_points), ("Test", test_points)]:
+    y = [[point[-1]] for point in evaluation_points]
+    predictions = [[predict(beta, point[0], point[1])] for point in evaluation_points]
+    print(name, "multiple regression")
+    evaluate(y, predictions)
+    print(name, "training-mean baseline")
+    evaluate(y, [[training_mean] for point in evaluation_points])
