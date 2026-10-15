@@ -1,37 +1,53 @@
 # Bike Sharing Regression
 
-The two scripts predict daily bike rentals (`cnt`) from temperature and humidity in the [UCI Bike Sharing Dataset](https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset).
+Multiple linear and quadratic polynomial regression models that predict daily bike rentals (`cnt`) from temperature and humidity in the [UCI Bike Sharing Dataset](https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset).
 
-Run from the project root with Python, Pandas and Plotly installed:
+Both models are implemented using handwritten matrix operations and Gaussian elimination. Their coefficients and predictions are compared against NumPy’s least-squares solver.
+
+## Run
+
+Install the dependencies and run both scripts from the project root:
 
 ```sh
+pip install numpy pandas matplotlib
 python src/MultipleRegression.py
 python src/PolynomialRegression.py
 ```
 
-Both scripts print coefficients and evaluation metrics. The polynomial script also opens an interactive Plotly surface.
+Both scripts print coefficients, evaluation metrics, and differences from NumPy’s predictions. They also display comparison plots and save them in the `images` directory.
 
 ## Inputs and methods
 
-The local `daily.csv` has no header. After dropping columns `[0, 1]`, temperature is `days.iloc[:, 8]`, humidity is `days.iloc[:, 10]`, and total rentals are the last column. The previous feature positions selected humidity and casual rentals.
+The local `daily.csv` has no header. After dropping columns `[0, 1]`, temperature is `days.iloc[:, 8]`, humidity is `days.iloc[:, 10]`, and total rentals are the last column.
 
-The CSV weather values are already normalized. Training and `predict(beta, temperature, humidity)` both use normalized temperature followed by normalized humidity, without further scaling. `predict()` does not accept raw Celsius or humidity percentages.
+Temperature and humidity are already normalized. The prediction functions accept these normalized values, without further scaling.
 
-Multiple regression uses `[1, temperature, humidity]`. Polynomial regression uses `[1, temperature, humidity, temperature**2, temperature*humidity, humidity**2]`.
+Multiple linear regression uses:
 
-Both solve the normal equations:
+```python
+[1, temperature, humidity]
+```
+
+Quadratic polynomial regression uses:
+
+```python
+[1, temperature, humidity,
+ temperature**2, temperature*humidity, humidity**2]
+```
+
+Both models solve the normal equations:
 
 $$
-(X^TX)\beta = X^Ty
+(X^\mathsf{T}X)\beta=X^\mathsf{T}y.
 $$
 
-Matrix multiplication, transposition and gaussian elimination with partial pivoting are implemented from scratch. Before division, pivots at or below `1e-12` times the largest absolute entry in the original coefficient matrix raise a singular or numerically unstable system error. Normal equations can amplify numerical conditioning problems; the pivot check is a safeguard, not a full condition estimate.
+Shared functions are stored in `src/math_operations.py`. Matrix multiplication, transposition, and Gaussian elimination with partial pivoting are implemented from scratch.
 
-The polynomial surface uses separate observed minimum-to-maximum ranges for temperature and humidity. Its axes identify the normalized inputs and predicted daily rentals.
+The solver rejects zero or near-zero pivots using a tolerance scaled to the original coefficient matrix. Normal equations can amplify numerical conditioning problems; this check does not guarantee numerical stability.
 
-## Evaluation
+## Prediction accuracy
 
-The 731 CSV observations are already in chronological order and are split without shuffling:
+The 731 observations are split chronologically, without shuffling:
 
 | Portion | Observations | Dates |
 | --- | ---: | --- |
@@ -39,11 +55,11 @@ The 731 CSV observations are already in chronological order and are split withou
 | Validation | 110 | 2012-05-26 to 2012-09-12 |
 | Test | 110 | 2012-09-13 to 2012-12-31 |
 
-The split boundaries are `int(0.70 * n)` and `int(0.85 * n)`. Only training observations determine the coefficients. Validation evaluates both fixed models; testing provides the final comparison without refitting. The baseline always predicts the training-set mean of 3794.21 rentals on the same validation and test observations.
+Only training observations determine the coefficients. Both models are evaluated on validation and test data without refitting. The baseline predicts the training-set mean of 3794.21 rentals for every observation.
 
-MAE is mean absolute error, RMSE is root mean squared error, and R² is `1 - sum((actual - predicted)**2) / sum((actual - evaluation_mean)**2)`. MAE and RMSE are measured in rentals; lower is better. Higher R² is better.
+MAE and RMSE measure prediction error in rentals; lower values are better. R² compares squared prediction error against predicting the evaluated portion’s own mean; higher values are better.
 
-Measured results from the included CSV:
+Recorded results for the included dataset:
 
 | Portion | Model | MAE | RMSE | R² |
 | --- | --- | ---: | ---: | ---: |
@@ -54,4 +70,29 @@ Measured results from the included CSV:
 | Test | Polynomial regression | 1990.00 | 2179.40 | -0.1870 |
 | Test | Training-mean baseline | 2352.94 | 2663.19 | -0.7725 |
 
-Multiple regression performs better on validation; polynomial regression performs better in the final test comparison. Both beat the training-mean baseline on both portions. Negative R² means their squared errors exceed those of predicting each evaluation portion's own mean, which differs from the training-mean baseline.
+Multiple regression performs better on validation, while polynomial regression performs better on test. Both outperform the training-mean baseline, but their negative R² values indicate substantial remaining prediction error.
+
+## Comparison with NumPy
+
+Each model is also fitted using `numpy.linalg.lstsq`, with exactly the same training matrix and targets.
+
+The scripts compare:
+
+- Fitted coefficients.
+- Predictions on validation and test observations.
+- MAE, RMSE, and R² against actual rental counts.
+- The largest absolute prediction difference between implementations.
+
+Coefficient and prediction comparisons use `np.testing.assert_allclose` with relative tolerance `1e-6` and absolute tolerance `1e-8`. A failed comparison raises an error.
+
+### Multiple linear regression
+
+![Multiple linear regression predictions compared with NumPy](images/multiple_regression.png)
+
+### Polynomial regression
+
+![Polynomial regression predictions compared with NumPy](images/polynomial_regression.png)
+
+In both plots, the horizontal axis shows NumPy’s predictions and the vertical axis shows the handwritten implementation’s predictions. Colours distinguish validation and test observations. Points on the diagonal indicate agreement.
+
+These plots check agreement between implementations, not accuracy against actual rental counts. Passing the comparisons supports correctness on the tested data; it does not prove correctness for every possible input.
